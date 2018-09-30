@@ -3,19 +3,37 @@ package com.example.mikko.trebus;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
+import android.util.Log;
 import android.widget.Toast;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.Set;
 
 public class MapsActivity extends FragmentActivity
         implements OnMapReadyCallback,
@@ -23,6 +41,8 @@ public class MapsActivity extends FragmentActivity
         GoogleMap.OnMyLocationButtonClickListener {
 
     private GoogleMap mMap;
+    private Hashtable<String, Marker> mMarkers = new Hashtable<String, Marker>();
+    private Handler mHandler = new Handler();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +84,8 @@ public class MapsActivity extends FragmentActivity
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                     0);
         }
+
+        mHandler.post(busFetcher);
     }
 
     @Override
@@ -78,11 +100,109 @@ public class MapsActivity extends FragmentActivity
     @Override
     public boolean onMyLocationButtonClick() {
         Toast.makeText(this, "My location button click", Toast.LENGTH_SHORT).show();
+        Log.d("Buses", "Bus infos in hashtable: " + mMarkers.size());
+
         return false;
     }
 
     @Override
     public void onMyLocationClick(@NonNull Location location) {
         Toast.makeText(this, "Current location:\n" + location, Toast.LENGTH_LONG).show();
+
     }
+
+    private void fetchBusInformation() {
+        // TODO: Move to proper place
+        RequestQueue queue = Volley.newRequestQueue(this);
+        String url = "http://data.itsfactory.fi/siriaccess/vm/json";
+
+        JsonObjectRequest request =
+                new JsonObjectRequest(Request.Method.GET, url,null, new Response.Listener<JSONObject>() {
+                    @Override
+                    public void onResponse(JSONObject response) {
+//                        Log.d("Buses", response.toString());
+                        try {
+                            Hashtable<String, BusInfo> newBusData = new Hashtable<String, BusInfo>();
+
+                            JSONObject Siri = response.getJSONObject("Siri");
+                            JSONObject ServiceDelivery = Siri.getJSONObject("ServiceDelivery");
+                            JSONArray VehicleMonitoringDelivery = ServiceDelivery.getJSONArray("VehicleMonitoringDelivery");
+                            Log.d("Buses", "VehicleMonitoringDelivery.length: " + VehicleMonitoringDelivery.length());
+                            for(int i = 0; i < VehicleMonitoringDelivery.length(); i++) {
+                                JSONObject VehicleMonitoringDeliveryItem = VehicleMonitoringDelivery.getJSONObject(i);
+                                JSONArray VehicleActivity = VehicleMonitoringDeliveryItem.getJSONArray("VehicleActivity");
+                                Log.d("Buses", "VehicleActivity.length: " + VehicleActivity.length());
+                                for(int j = 0; j < VehicleActivity.length(); j++) {
+                                    JSONObject VehicleActivityItem = VehicleActivity.getJSONObject(j);
+                                    JSONObject MonitoredVehicleJourney = VehicleActivityItem.getJSONObject("MonitoredVehicleJourney");
+
+                                    BusInfo busInfo = new BusInfo();
+                                    busInfo.line = MonitoredVehicleJourney.getJSONObject("LineRef").getString("value");
+                                    busInfo.origin = MonitoredVehicleJourney.getJSONObject("OriginName").getString("value");
+                                    busInfo.destination = MonitoredVehicleJourney.getJSONObject("DestinationName").getString("value");
+                                    JSONObject VehicleLocation = MonitoredVehicleJourney.getJSONObject("VehicleLocation");
+                                    busInfo.longitude = VehicleLocation.getDouble("Longitude");
+                                    busInfo.latitude = VehicleLocation.getDouble("Latitude");
+                                    String VehicleRef = MonitoredVehicleJourney.getJSONObject("VehicleRef").getString("value");
+//                                    Log.d("Buses", busInfo.line + ": " + busInfo.origin + " - " + busInfo.destination + " Lat: " + busInfo.latitude + " Lon: " + busInfo.longitude);
+
+                                    newBusData.put(VehicleRef, busInfo);
+                                }
+                            }
+
+                            Set<String> newKeys = newBusData.keySet();
+                            for(String key: newKeys) {
+                                BusInfo busInfo = newBusData.get(key);
+                                LatLng location = new LatLng(busInfo.latitude, busInfo.longitude);
+                                if(mMarkers.containsKey(key)) {
+                                    Marker marker = mMarkers.get(key);
+                                    marker.setPosition(location);
+                                } else {
+                                    mMarkers.put(key, mMap.addMarker(new MarkerOptions().position(location).title(busInfo.line)));
+                                }
+                            }
+
+                            Set<String> oldKeys = mMarkers.keySet();
+                            ArrayList<String> removedKeys = new ArrayList<String>();
+                            int i = 0;
+                            Log.d("Buses","newDataSize: " + newBusData.size());
+                            for(String key: oldKeys) {
+                                i++;
+                                if(newBusData.containsKey(key) == false) {
+                                    Marker marker = mMarkers.get(key);
+                                    marker.remove();
+                                    removedKeys.add(key);
+                                }
+                            }
+                            Log.d("Buses", "Key amoutn: " + i);
+                            Log.d("Buses", "marker count: " + mMarkers.size());
+                            Iterator<String> iter = removedKeys.iterator();
+                            while(iter.hasNext()) {
+                                String key = iter.next();
+                                mMarkers.remove(key);
+                            }
+                            Log.d("Buses", "marker count after remove: " + mMarkers.size());
+
+                        } catch (JSONException e) {
+                            Log.d("Buses", "Error parsing Siri" + e.toString());
+                        }
+                    }
+                }, new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        Log.e("Buses", "Error receiving bus locations: " + error.getMessage());
+                    }
+                });
+
+        queue.add(request);
+    }
+
+    private Runnable busFetcher = new Runnable() {
+        @Override
+        public void run() {
+            fetchBusInformation();
+
+            mHandler.postDelayed(this, 5000);
+        }
+    };
 }
