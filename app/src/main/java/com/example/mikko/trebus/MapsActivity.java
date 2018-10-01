@@ -2,6 +2,11 @@ package com.example.mikko.trebus;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
 import android.location.Location;
 import android.os.Handler;
 import android.support.annotation.NonNull;
@@ -22,6 +27,7 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
@@ -43,6 +49,10 @@ public class MapsActivity extends FragmentActivity
     private GoogleMap mMap;
     private Hashtable<String, Marker> mMarkers = new Hashtable<String, Marker>();
     private Handler mHandler = new Handler();
+
+    private static final int MARKER_WIDTH = 80;
+    private static final int MARKER_HEIGHT = 80;
+    private static final int MARKER_TEXT_SIZE = 35;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -158,7 +168,14 @@ public class MapsActivity extends FragmentActivity
                                     Marker marker = mMarkers.get(key);
                                     marker.setPosition(location);
                                 } else {
-                                    mMarkers.put(key, mMap.addMarker(new MarkerOptions().position(location).title(busInfo.line)));
+                                    Bitmap busMarker = createBusMarker(busInfo.line);
+                                    mMarkers.put(
+                                            key,
+                                            mMap.addMarker(new MarkerOptions()
+                                                    .position(location)
+                                                    .title(busInfo.line)
+                                                    .icon(BitmapDescriptorFactory.fromBitmap(busMarker))
+                                                    .anchor(0.5f, 0.5f)));
                                 }
                             }
 
@@ -205,4 +222,29 @@ public class MapsActivity extends FragmentActivity
             mHandler.postDelayed(this, 5000);
         }
     };
+
+    public Bitmap createBusMarker(String line) {
+        Bitmap.Config conf = Bitmap.Config.ARGB_8888;
+        Bitmap bmp = Bitmap.createBitmap(MARKER_WIDTH, MARKER_HEIGHT, conf);
+        Canvas canvas1 = new Canvas(bmp);
+
+        // paint defines the text color, stroke width and size
+        Paint textPaint = new Paint();
+        textPaint.setTextSize(MARKER_TEXT_SIZE);
+        textPaint.setColor(Color.WHITE);
+        textPaint.setFakeBoldText(true);
+        Rect textBounds = new Rect();
+        textPaint.getTextBounds(line, 0, line.length(), textBounds);
+
+
+        Paint circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        circlePaint.setStyle(Paint.Style.FILL);
+        circlePaint.setColor(Color.BLUE);
+
+        // modify canvas
+        canvas1.drawCircle(MARKER_WIDTH / 2, MARKER_HEIGHT / 2, MARKER_HEIGHT / 2, circlePaint);
+        canvas1.drawText(line, (MARKER_WIDTH / 2) - (textBounds.width() / 2), (MARKER_HEIGHT / 2) + (textBounds.height() / 2), textPaint);
+
+        return bmp;
+    }
 }
